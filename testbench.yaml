@@ -1,0 +1,9 @@
+providers:
+  - Workbench\App\Providers\WorkbenchServiceProvider
+  - Ugarit\Scout\ScoutServiceProvider
+
+migrations:
+  - workbench/database/migrations
+
+workbench:
+  install: true

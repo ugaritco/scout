@@ -1,0 +1,290 @@
+<?php
+
+namespace Ugarit\Scout\Tests\Feature;
+
+use Heritage\Foundation\Testing\LazilyRefreshDatabase;
+use Heritage\Foundation\Testing\WithFaker;
+use Ugarit\Scout\Exceptions\NotSupportedException;
+use Orchestra\Testbench\Concerns\WithUgaritMigrations;
+use Orchestra\Testbench\Concerns\WithWorkbench;
+use Orchestra\Testbench\TestCase;
+use Workbench\App\Models\Bookmark;
+use Workbench\App\Models\SearchableUser;
+use Workbench\Database\Factories\BookmarkFactory;
+use Workbench\Database\Factories\ChirpFactory;
+use Workbench\Database\Factories\SearchableUserFactory;
+
+class DatabaseEngineTest extends TestCase
+{
+    use LazilyRefreshDatabase, WithFaker, WithUgaritMigrations, WithWorkbench;
+
+    protected function defineEnvironment($app)
+    {
+        $app->make('config')->set('scout.driver', 'database');
+    }
+
+    protected function afterRefreshingDatabase()
+    {
+        SearchableUserFactory::new()->create([
+            'name' => 'Taylor Otwell',
+            'email' => 'taylor@ugarit.com',
+        ]);
+
+        SearchableUserFactory::new()->create([
+            'name' => 'Abigail Otwell',
+            'email' => 'abigail@ugarit.com',
+        ]);
+    }
+
+    public function test_it_can_retrieve_results_with_empty_search()
+    {
+        $models = SearchableUser::search()->get();
+
+        $this->assertCount(2, $models);
+    }
+
+    public function test_semantic_search_requires_postgres_and_ugarit_13()
+    {
+        $this->expectException(NotSupportedException::class);
+        $this->expectExceptionMessage('requires Ugarit 13 and PostgreSQL with pgvector');
+
+        SearchableUser::search('Taylor')->semantic()->get();
+    }
+
+    public function test_hybrid_search_falls_back_to_normal_text_search_when_vectors_are_not_supported()
+    {
+        $models = SearchableUser::search('Taylor')->hybrid()->get();
+
+        $this->assertCount(1, $models);
+        $this->assertSame('Taylor Otwell', $models->first()->name);
+    }
+
+    public function test_it_does_not_add_search_where_clauses_with_empty_search()
+    {
+        SearchableUser::search('')->query(function ($builder) {
+            $this->assertSame('select * from "users"', $builder->toSql());
+        })->get();
+    }
+
+    public function test_it_adds_search_where_clauses_with_non_empty_search()
+    {
+        SearchableUser::search('Taylor')->query(function ($builder) {
+            $this->assertSame('select * from "users" where ("users"."id" like ? or "users"."name" like ? or "users"."email" like ? or "users"."age" like ?)', $builder->toSql());
+        })->get();
+    }
+
+    public function test_it_can_retrieve_results()
+    {
+        $models = SearchableUser::search('Taylor')->where('email', 'taylor@ugarit.com')->get();
+        $this->assertCount(1, $models);
+        $this->assertEquals(1, $models[0]->id);
+
+        $models = SearchableUser::search('Taylor')->query(function ($query) {
+            $query->where('email', 'like', 'taylor@ugarit.com');
+        })->get();
+
+        $this->assertCount(1, $models);
+        $this->assertEquals(1, $models[0]->id);
+
+        $models = SearchableUser::search('Abigail')->where('email', 'abigail@ugarit.com')->get();
+        $this->assertCount(1, $models);
+        $this->assertEquals(2, $models[0]->id);
+
+        $models = SearchableUser::search('Taylor')->where('email', 'abigail@ugarit.com')->get();
+        $this->assertCount(0, $models);
+
+        $models = SearchableUser::search('Taylor')->where('email', 'taylor@ugarit.com')->get();
+        $this->assertCount(1, $models);
+
+        $models = SearchableUser::search('otwell')->get();
+        $this->assertCount(2, $models);
+
+        $models = SearchableUser::search('ugarit')->get();
+        $this->assertCount(2, $models);
+
+        $models = SearchableUser::search('foo')->get();
+        $this->assertCount(0, $models);
+
+        $models = SearchableUser::search('Abigail')->where('email', 'taylor@ugarit.com')->get();
+        $this->assertCount(0, $models);
+    }
+
+    public function test_it_can_paginate_results()
+    {
+        $models = SearchableUser::search('Taylor')->where('email', 'taylor@ugarit.com')->paginate();
+        $this->assertCount(1, $models);
+
+        $models = SearchableUser::search('Taylor')->where('email', 'abigail@ugarit.com')->paginate();
+        $this->assertCount(0, $models);
+
+        $models = SearchableUser::search('Taylor')->where('email', 'taylor@ugarit.com')->paginate();
+        $this->assertCount(1, $models);
+
+        $models = SearchableUser::search('ugarit')->paginate();
+        $this->assertCount(2, $models);
+    }
+
+    public function test_it_can_paginate_using_a_custom_page_name()
+    {
+        $models = SearchableUser::search('Taylor')->where('email', 'taylor@ugarit.com')->paginate();
+        $this->assertStringContainsString('page=1', $models->url(1));
+
+        $models = SearchableUser::search('Taylor')->where('email', 'taylor@ugarit.com')->paginate(pageName: 'foo');
+        $this->assertStringContainsString('foo=1', $models->url(1));
+
+        $models = SearchableUser::search('Taylor')->where('email', 'taylor@ugarit.com')->paginate(pageName: 'bar');
+        $this->assertStringContainsString('bar=1', $models->url(1));
+    }
+
+    public function test_it_can_simple_paginate_using_a_custom_page_name()
+    {
+        $models = SearchableUser::search('Taylor')->where('email', 'taylor@ugarit.com')->simplePaginate();
+        $this->assertStringContainsString('page=1', $models->url(1));
+
+        $models = SearchableUser::search('Taylor')->where('email', 'taylor@ugarit.com')->simplePaginate(pageName: 'foo');
+        $this->assertStringContainsString('foo=1', $models->url(1));
+
+        $models = SearchableUser::search('Taylor')->where('email', 'taylor@ugarit.com')->simplePaginate(pageName: 'bar');
+        $this->assertStringContainsString('bar=1', $models->url(1));
+    }
+
+    public function test_limit_is_applied()
+    {
+        $models = SearchableUser::search('ugarit')->get();
+        $this->assertCount(2, $models);
+
+        $models = SearchableUser::search('ugarit')->take(1)->get();
+        $this->assertCount(1, $models);
+    }
+
+    public function test_tap_is_applied()
+    {
+        $models = SearchableUser::search('ugarit')->get();
+        $this->assertCount(2, $models);
+
+        $models = SearchableUser::search('ugarit')->tap(function ($query) {
+            return $query->take(1);
+        })->get();
+        $this->assertCount(1, $models);
+    }
+
+    public function test_it_can_order_results()
+    {
+        $models = SearchableUser::search('ugarit')->orderBy('name', 'asc')->take(1)->get();
+        $this->assertCount(1, $models);
+        $this->assertEquals('Abigail Otwell', $models[0]->name);
+
+        $modelsPaginate = SearchableUser::search('ugarit')->orderBy('name', 'asc')->paginate(1, 'page', 1);
+        $this->assertCount(1, $modelsPaginate);
+        $this->assertEquals('Abigail Otwell', $modelsPaginate[0]->name);
+
+        $modelsSimplePaginate = SearchableUser::search('ugarit')->orderBy('name', 'asc')->simplePaginate(1, 'page', 1);
+        $this->assertCount(1, $modelsPaginate);
+        $this->assertEquals('Abigail Otwell', $modelsSimplePaginate[0]->name);
+
+        $models = SearchableUser::search('ugarit')->orderBy('name', 'desc')->take(1)->get();
+        $this->assertCount(1, $models);
+        $this->assertEquals('Taylor Otwell', $models[0]->name);
+
+        $models = SearchableUser::search('ugarit')->orderByDesc('name')->take(1)->get();
+        $this->assertCount(1, $models);
+        $this->assertEquals('Taylor Otwell', $models[0]->name);
+
+        $modelsPaginate = SearchableUser::search('ugarit')->orderBy('name', 'desc')->paginate(1, 'page', 1);
+        $this->assertCount(1, $modelsPaginate);
+        $this->assertEquals('Taylor Otwell', $modelsPaginate[0]->name);
+
+        $modelsPaginate = SearchableUser::search('ugarit')->orderByDesc('name')->paginate(1, 'page', 1);
+        $this->assertCount(1, $modelsPaginate);
+        $this->assertEquals('Taylor Otwell', $modelsPaginate[0]->name);
+
+        $modelsSimplePaginate = SearchableUser::search('ugarit')->orderBy('name', 'desc')->simplePaginate(1, 'page', 1);
+        $this->assertCount(1, $modelsSimplePaginate);
+        $this->assertEquals('Taylor Otwell', $modelsSimplePaginate[0]->name);
+
+        $modelsSimplePaginate = SearchableUser::search('ugarit')->orderByDesc('name')->simplePaginate(1, 'page', 1);
+        $this->assertCount(1, $modelsSimplePaginate);
+        $this->assertEquals('Taylor Otwell', $modelsSimplePaginate[0]->name);
+    }
+
+    public function test_it_uses_scout_query()
+    {
+        // create bookmarks with chirp_id
+        BookmarkFactory::new()
+            ->for(ChirpFactory::new()->create(['content' => 'This chirp is searchable']))
+            ->create([
+                'label' => 'ugarit',
+            ]);
+
+        $models = Bookmark::search('chirp')->get();
+        $this->assertCount(1, $models);
+        $this->assertEquals('ugarit', $models[0]->label);
+        $this->assertEquals('This chirp is searchable', $models[0]->chirp->content);
+    }
+
+    public function test_it_can_filter_with_greater_than()
+    {
+        $models = SearchableUser::search()->where('name', '>', 'B')->get();
+
+        $this->assertCount(1, $models);
+        $this->assertEquals('Taylor Otwell', $models[0]->name);
+    }
+
+    public function test_it_can_filter_with_less_than()
+    {
+        $models = SearchableUser::search()->where('name', '<', 'B')->get();
+
+        $this->assertCount(1, $models);
+        $this->assertEquals('Abigail Otwell', $models[0]->name);
+    }
+
+    public function test_it_can_filter_with_greater_than_or_equal()
+    {
+        $models = SearchableUser::search()->where('name', '>=', 'T')->get();
+
+        $this->assertCount(1, $models);
+        $this->assertEquals('Taylor Otwell', $models[0]->name);
+
+        $models = SearchableUser::search()->where('name', '>=', 'A')->get();
+
+        $this->assertCount(2, $models);
+    }
+
+    public function test_it_can_filter_with_less_than_or_equal()
+    {
+        $models = SearchableUser::search()->where('name', '<=', 'Abigail Otwell')->get();
+
+        $this->assertCount(1, $models);
+        $this->assertEquals('Abigail Otwell', $models[0]->name);
+
+        $models = SearchableUser::search()->where('name', '<=', 'Taylor Otwell')->get();
+
+        $this->assertCount(2, $models);
+    }
+
+    public function test_it_can_filter_with_not_equal()
+    {
+        $models = SearchableUser::search()->where('name', '!=', 'Abigail Otwell')->get();
+
+        $this->assertCount(1, $models);
+        $this->assertEquals('Taylor Otwell', $models[0]->name);
+
+        $models = SearchableUser::search()->where('name', '!=', 'Taylor Otwell')->get();
+
+        $this->assertCount(1, $models);
+        $this->assertEquals('Abigail Otwell', $models[0]->name);
+    }
+
+    public function test_it_can_filter_with_multiple_where_comparisons()
+    {
+        $models = SearchableUser::search()->where('name', '>', 'S')->where('name', '<', 'Z')->get();
+
+        $this->assertCount(1, $models);
+        $this->assertEquals('Taylor Otwell', $models[0]->name);
+
+        $models = SearchableUser::search()->where('name', '>', 'A')->where('name', '<', 'S')->get();
+
+        $this->assertCount(1, $models);
+        $this->assertEquals('Abigail Otwell', $models[0]->name);
+    }
+}

@@ -1,0 +1,86 @@
+{
+    "name": "ugarit/scout",
+    "description": "Ugarit Scout provides a driver based solution to searching your Eloquent models.",
+    "keywords": [
+        "algolia",
+        "ugarit",
+        "search"
+    ],
+    "license": "MIT",
+    "support": {
+        "issues": "https://github.com/ugarit/scout/issues",
+        "source": "https://github.com/ugarit/scout"
+    },
+    "authors": [
+        {
+            "name": "Muath R Abu Ouda",
+            "email": "muathrabuouda@hotmail.com",
+            "role": "Vision Leader of Ugarit"
+        },
+        {
+            "name": "Taylor Otwell",
+            "email": "taylor@laravel.com",
+            "role": "Original Creator & Primary Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.0",
+        "heritage/bus": "^1.00.00",
+        "heritage/contracts": "^1.00.00",
+        "heritage/database": "^1.00.00",
+        "heritage/http": "^1.00.00",
+        "heritage/pagination": "^1.00.00",
+        "heritage/queue": "^1.00.00",
+        "heritage/support": "^1.00.00",
+        "symfony/console": "^6.0|^7.0|^8.0"
+    },
+    "require-dev": {
+        "algolia/algoliasearch-client-php": "^3.2|^4.0",
+        "typesense/typesense-php": "^4.9.3",
+        "meilisearch/meilisearch-php": "^1.0",
+        "mockery/mockery": "^1.0",
+        "orchestra/testbench": "^7.31|^8.36|^9.15|^10.8|^11.0",
+        "php-http/guzzle7-adapter": "^1.0",
+        "phpstan/phpstan": "^1.10"
+    },
+    "conflict": {
+        "algolia/algoliasearch-client-php": "<3.2.0|>=5.0.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ugarit\\Scout\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Ugarit\\Scout\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/",
+            "Workbench\\Database\\Factories\\": "workbench/database/factories/"
+        }
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-master": "11.x-dev"
+        },
+        "ugarit": {
+            "providers": [
+                "Ugarit\\Scout\\ScoutServiceProvider"
+            ]
+        }
+    },
+    "suggest": {
+        "algolia/algoliasearch-client-php": "Required to use the Algolia engine (^3.2).",
+        "ugarit/ai": "Required to generate embeddings for semantic and hybrid search.",
+        "meilisearch/meilisearch-php": "Required to use the Meilisearch engine (^1.0).",
+        "typesense/typesense-php": "Required to use the Typesense engine (^4.9)."
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "version": "1.00.00"
+}
